@@ -1,0 +1,42 @@
+name: SecureThread CI - MVP Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  security-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      ### BACKEND - PYTHON SECURITY (Bandit)
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install Bandit
+        run: pip install bandit
+
+      - name: Run Bandit Scan on Backend
+        run: bandit -r Backend/
+
+      ### FRONTEND - JS SECURITY (ESLint)
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install ESLint
+        run: |
+          cd Frontend
+          npm install eslint
+          npx eslint . || true  # continue even if errors
+
+      - name: Finish Job
+        run: echo "✅ MVP Security CI Completed"
