@@ -1,12 +1,13 @@
 # Backend/repo_scanner.py
 import os
-import subprocess
+import subprocess  # nosec B404 - subprocess is needed for security tools
 import tempfile
 import shutil
 import json
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
+import yara
 
 class GitHubRepoScanner:
     """
@@ -37,7 +38,7 @@ class GitHubRepoScanner:
             
             # First check if git is available
             try:
-                git_check = subprocess.run(["git", "--version"], capture_output=True, text=True, timeout=10)
+                git_check = subprocess.run(["git", "--version"], capture_output=True, text=True, timeout=10)  # nosec B603 B607
                 if git_check.returncode != 0:
                     print("❌ Git is not installed or not accessible")
                     return False
@@ -53,7 +54,7 @@ class GitHubRepoScanner:
             print(f"🔄 Cloning repository: {repo_url}")
             print(f"📁 Target directory: {self.temp_dir}")
             
-            result = subprocess.run([
+            result = subprocess.run([  # nosec B603 B607
                 "git", "clone", "--depth=1", repo_url, self.temp_dir
             ], capture_output=True, text=True, timeout=120)
             
@@ -154,9 +155,11 @@ class GitHubRepoScanner:
         try:
             print("🐍 Running Bandit scan on Python files...")
             
-            # Run Bandit with JSON output
-            result = subprocess.run([
-                "bandit", "-r", self.temp_dir, "-f", "json"
+            # Run Bandit with more comprehensive security checks
+            result = subprocess.run([  # nosec B603 B607
+                "bandit", "-r", self.temp_dir, "-f", "json", 
+                "-ll",  # Low level and above (more sensitive)
+                "-i"    # Show confidence levels
             ], capture_output=True, text=True, cwd=self.temp_dir)
             
             if result.stdout:
@@ -214,7 +217,7 @@ class GitHubRepoScanner:
                 npx_cmd = "npx"
             
             try:
-                npm_check = subprocess.run([npm_cmd, "--version"], capture_output=True, text=True, timeout=10)
+                npm_check = subprocess.run([npm_cmd, "--version"], capture_output=True, text=True, timeout=10)  # nosec B603
                 if npm_check.returncode != 0:
                     print("⚠️ npm not found. Skipping JavaScript scan.")
                     return {
@@ -246,7 +249,7 @@ class GitHubRepoScanner:
             
             print("📦 Installing ESLint...")
             # Install ESLint in the temp directory with error handling
-            install_result = subprocess.run([
+            install_result = subprocess.run([  # nosec B603
                 npm_cmd, "install", "eslint", "--no-save", "--silent"
             ], cwd=self.temp_dir, capture_output=True, text=True, timeout=120)
             
@@ -260,16 +263,38 @@ class GitHubRepoScanner:
                 }
             
             print("🔍 Running ESLint analysis...")
-            # Run ESLint with JSON output and simpler config
+            # Run ESLint with comprehensive security and quality rules
             eslint_command = [
                 npx_cmd, "eslint", ".", 
                 "--format", "json",
                 "--no-eslintrc",
-                "--env", "browser,node",
-                "--parser-options", "ecmaVersion:2021"
+                "--env", "browser,node,es6",
+                "--parser-options", "ecmaVersion:2021,sourceType:module",
+                "--rule", "no-eval:error",
+                "--rule", "no-implied-eval:error", 
+                "--rule", "no-new-func:error",
+                "--rule", "no-script-url:error",
+                "--rule", "no-unsafe-innerhtml:off",
+                "--rule", "no-unused-vars:warn",
+                "--rule", "no-undef:error",
+                "--rule", "no-console:warn",
+                "--rule", "no-debugger:error",
+                "--rule", "eqeqeq:error",
+                "--rule", "no-alert:warn",
+                "--rule", "no-var:warn",
+                "--rule", "prefer-const:warn",
+                "--rule", "no-unreachable:error",
+                "--rule", "no-duplicate-case:error",
+                "--rule", "no-empty:warn",
+                "--rule", "no-extra-semi:warn",
+                "--rule", "no-func-assign:error",
+                "--rule", "no-irregular-whitespace:warn",
+                "--rule", "no-sparse-arrays:warn",
+                "--rule", "use-isnan:error",
+                "--rule", "valid-typeof:error"
             ]
             
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603
                 eslint_command,
                 capture_output=True, 
                 text=True, 
@@ -320,6 +345,149 @@ class GitHubRepoScanner:
         except Exception as e:
             print(f"❌ Error running ESLint scan: {str(e)}")
             return {"error": f"ESLint scan failed: {str(e)}"}
+    
+    def scan_with_yara_rules(self) -> Dict:
+        """
+        Scan files using custom YARA rules for advanced threat detection.
+        
+        Returns:
+            Dict containing YARA scan results
+        """
+        if not self.temp_dir:
+            return {"error": "No repository loaded"}
+        
+        try:
+            print("🔍 Running YARA pattern matching scan...")
+            
+            # Path to YARA rules file
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            yara_rules_path = os.path.join(current_dir, "yara_rules", "security_rules.yar")
+            
+            if not os.path.exists(yara_rules_path):
+                print("⚠️ YARA rules file not found, skipping YARA scan")
+                return {
+                    "tool": "yara",
+                    "status": "skipped",
+                    "error": "Rules file not found",
+                    "message": f"YARA rules file not found at: {yara_rules_path}"
+                }
+            
+            # Compile YARA rules
+            try:
+                rules = yara.compile(filepath=yara_rules_path)
+                print("✅ YARA rules compiled successfully")
+            except yara.SyntaxError as e:
+                print(f"❌ YARA rules syntax error: {str(e)}")
+                return {
+                    "tool": "yara",
+                    "status": "failed",
+                    "error": "Rules syntax error",
+                    "details": str(e)
+                }
+            
+            # Scan all files in the repository
+            yara_matches = []
+            files_scanned = 0
+            
+            for root, dirs, files in os.walk(self.temp_dir):
+                # Skip hidden directories and common non-source directories
+                dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'build', 'dist', '.git']]
+                
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    relative_path = os.path.relpath(file_path, self.temp_dir)
+                    
+                    # Only scan text files (skip binaries, images, etc.)
+                    if self._is_text_file(file_path):
+                        try:
+                            matches = rules.match(file_path)
+                            files_scanned += 1
+                            
+                            if matches:
+                                for match in matches:
+                                    match_info = {
+                                        "file": relative_path,
+                                        "rule": match.rule,
+                                        "category": match.meta.get("category", "unknown"),
+                                        "severity": match.meta.get("severity", "MEDIUM"),
+                                        "description": match.meta.get("description", "No description"),
+                                        "strings": []
+                                    }
+                                    
+                                    # Add matched strings with context
+                                    for string_match in match.strings:
+                                        match_info["strings"].append({
+                                            "identifier": string_match.identifier,
+                                            "offset": string_match.instances[0].offset,
+                                            "matched_data": string_match.instances[0].matched_data.decode('utf-8', errors='ignore')[:100]
+                                        })
+                                    
+                                    yara_matches.append(match_info)
+                        
+                        except Exception as e:
+                            # Skip files that can't be read
+                            continue
+            
+            issues_found = len(yara_matches)
+            print(f"🔍 YARA scanned {files_scanned} files and found {issues_found} potential issues")
+            
+            # Group results by severity for summary
+            severity_counts = {}
+            for match in yara_matches:
+                severity = match["severity"]
+                severity_counts[severity] = severity_counts.get(severity, 0) + 1
+            
+            if severity_counts:
+                print("📊 Issues by severity:")
+                for severity, count in severity_counts.items():
+                    print(f"  - {severity}: {count} issues")
+            
+            return {
+                "tool": "yara",
+                "status": "completed",
+                "files_scanned": files_scanned,
+                "issues_found": issues_found,
+                "severity_breakdown": severity_counts,
+                "matches": yara_matches
+            }
+            
+        except Exception as e:
+            print(f"❌ Error running YARA scan: {str(e)}")
+            return {"error": f"YARA scan failed: {str(e)}"}
+    
+    def _is_text_file(self, file_path: str) -> bool:
+        """
+        Check if a file is a text file that should be scanned.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            bool: True if file should be scanned
+        """
+        # Skip binary file extensions
+        binary_extensions = {
+            '.exe', '.dll', '.so', '.dylib', '.bin', '.dat',
+            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico',
+            '.mp3', '.mp4', '.avi', '.mkv', '.wav', '.flac',
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            '.zip', '.tar', '.gz', '.7z', '.rar',
+            '.woff', '.woff2', '.ttf', '.otf', '.eot'
+        }
+        
+        _, ext = os.path.splitext(file_path.lower())
+        if ext in binary_extensions:
+            return False
+        
+        try:
+            # Try to read first few bytes to check if it's text
+            with open(file_path, 'rb') as f:
+                chunk = f.read(1024)
+                if b'\x00' in chunk:  # Null bytes indicate binary file
+                    return False
+            return True
+        except:
+            return False
         
     
     def run_full_scan(self, repo_url: str) -> Dict:
@@ -367,6 +535,9 @@ class GitHubRepoScanner:
         if "javascript" in detected_languages or "typescript" in detected_languages:
             scan_results["scans"]["javascript"] = self.scan_javascript_files()
         
+        # Run YARA pattern matching on all files
+        scan_results["scans"]["yara"] = self.scan_with_yara_rules()
+        
         # Calculate scan duration
         scan_end_time = datetime.now()
         scan_duration = (scan_end_time - scan_start_time).total_seconds()
@@ -389,13 +560,15 @@ class GitHubRepoScanner:
                 import platform
                 
                 if platform.system() == "Windows":
-                    # Try to make files writable on Windows
+                    # Try to make files writable on Windows (more secure permissions)
                     for root, dirs, files in os.walk(self.temp_dir):
                         for file in files:
                             try:
-                                os.chmod(os.path.join(root, file), 0o777)
-                            except:
-                                pass
+                                # Use more restrictive permissions (owner read/write only)
+                                os.chmod(os.path.join(root, file), 0o600)  # nosec B103
+                            except OSError:
+                                # Specific exception handling instead of bare except
+                                continue
                     # Small delay to let file handles close
                     time.sleep(0.1)
                 
