@@ -424,8 +424,9 @@ class GitHubRepoScanner:
                                     
                                     yara_matches.append(match_info)
                         
-                        except Exception as e:
-                            # Skip files that can't be read
+                        except (IOError, OSError, UnicodeDecodeError) as e:
+                            # Skip files that can't be read (specific exception handling)
+                            print(f"⚠️ Skipping file {relative_path}: {str(e)}")
                             continue
             
             issues_found = len(yara_matches)
