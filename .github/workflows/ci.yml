@@ -23,7 +23,7 @@ jobs:
       - name: Run Bandit Scan on Backend
         run: |
           cd Backend
-          bandit -r . -c .bandit
+          bandit -r . -c bandit.yaml
 
       ### FRONTEND - JS SECURITY (ESLint)
       - name: Set up Node.js
