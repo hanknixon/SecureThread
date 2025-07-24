@@ -43,8 +43,10 @@ jobs:
           cd Backend
           pip install -r requirements.txt
           python -c "
-          from scanner.core.scanner_manager import ScannerManager
+          from scanner.core.scanner_manager import SecurityScannerManager
+          manager = SecurityScannerManager()
           print('✅ Repository scanner imports successfully')
+          print('Available scanners:', list(manager.get_available_scanners().keys()))
           "
 
       - name: Finish Job
