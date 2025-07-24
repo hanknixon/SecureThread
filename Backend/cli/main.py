@@ -356,8 +356,9 @@ def generate_output_filename(scan_result) -> str:
     repo_name = "unknown"
     try:
         repo_name = scan_result.repository_url.split('/')[-1].replace('.git', '')
-    except:
-        pass
+    except (AttributeError, IndexError):
+        # Handle cases where URL is malformed or None
+        repo_name = "unknown"
     
     return f"scan_results_{repo_name}_{timestamp}.json"
 

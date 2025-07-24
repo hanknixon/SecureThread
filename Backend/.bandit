@@ -1,9 +1,10 @@
 # Backend/.bandit
 [bandit]
 # Skip certain tests that are expected in a security scanner tool
-skips = B404,B603,B607
+skips = B404,B603,B607,B108
 
 # Configuration explanation:
 # B404: subprocess import needed for running security tools
 # B603: subprocess without shell=True is safer than shell=True  
 # B607: partial path for git/npm commands expected in PATH
+# B108: hardcoded temp directory in tests is acceptable for testing

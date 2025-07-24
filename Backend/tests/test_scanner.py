@@ -246,7 +246,10 @@ class TestIntegration(unittest.TestCase):
         # Mock the temporary directory and language detection
         with patch('scanner.utils.file_utils.FileManager.temporary_directory') as mock_temp_dir:
             with patch('scanner.utils.language_detector.LanguageDetector.detect_languages') as mock_detect:
-                mock_temp_dir.return_value.__enter__.return_value = "/tmp/test"
+                # Use tempfile to generate a proper temporary path  # nosec B108
+                import tempfile
+                test_temp_dir = tempfile.mkdtemp()
+                mock_temp_dir.return_value.__enter__.return_value = test_temp_dir
                 mock_detect.return_value = {"python": ["main.py", "utils.py"]}
                 
                 # Run scan
@@ -257,6 +260,10 @@ class TestIntegration(unittest.TestCase):
                 self.assertEqual(result.repository_url, "https://github.com/user/repo")
                 self.assertIn("python", result.tool_results)
                 self.assertEqual(result.tool_results["python"].issues_found, 2)
+                
+                # Clean up
+                import shutil
+                shutil.rmtree(test_temp_dir, ignore_errors=True)
 
 
 def run_comprehensive_tests():
