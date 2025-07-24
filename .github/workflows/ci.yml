@@ -1,15 +1,12 @@
-name: SecureThread CI - MVP Scan
-
+name: SecureThread CI - Enhanced Security Scan
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
 jobs:
   security-check:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
@@ -24,7 +21,9 @@ jobs:
         run: pip install bandit
 
       - name: Run Bandit Scan on Backend
-        run: bandit -r Backend/
+        run: |
+          cd Backend
+          bandit -r . -c .bandit
 
       ### FRONTEND - JS SECURITY (ESLint)
       - name: Set up Node.js
@@ -38,5 +37,16 @@ jobs:
           npm install eslint
           npx eslint . || true  # continue even if errors
 
+      ### REPOSITORY SCANNER TESTING
+      - name: Test Repository Scanner
+        run: |
+          cd Backend
+          pip install -r requirements.txt
+          python -c "
+          from repo_scanner import GitHubRepoScanner
+          scanner = GitHubRepoScanner()
+          print('✅ Repository scanner imports successfully')
+          "
+
       - name: Finish Job
-        run: echo "✅ MVP Security CI Completed"
+        run: echo "✅ Enhanced Security CI Completed"
